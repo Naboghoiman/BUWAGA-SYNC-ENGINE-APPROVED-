@@ -1,0 +1,6 @@
+{
+  "name": "BUWAGA Pro Sync Engine",
+  "description": "Professional Master and Follower DJ sync core with audio file upload, automatic BPM and beatgrid tracking, auto sync, and real-time PID phase correction.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
