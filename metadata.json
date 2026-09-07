@@ -1,6 +1,6 @@
 {
-  "name": "BUWAGA Pro Sync Engine",
-  "description": "Professional Master and Follower DJ sync core with audio file upload, automatic BPM and beatgrid tracking, auto sync, and real-time PID phase correction.",
-  "requestFramePermissions": [],
+  "name": "DJ IMAN - Virtual DJ Pro",
+  "description": "Professional 2-deck 2-channel Virtual DJ application powered by the BUWAGA synchronization engine with real-time DSP, 31-band graphic EQ, Pioneer-style jogwheels, and MPC performance sampler.",
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
