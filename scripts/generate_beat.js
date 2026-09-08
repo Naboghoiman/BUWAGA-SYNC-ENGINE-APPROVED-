@@ -1,44 +1,61 @@
 import fs from 'fs';
 import path from 'path';
 
-// 4-Bar 100 BPM Superb Beat WAV Generator
+// 4-Bar 128.0 BPM Universal Superb Beat WAV Generator
 const sampleRate = 44100;
-const bpm = 100.0;
+const bpm = 128.0;
 const bars = 4;
 const beatsPerBar = 4;
 const totalBeats = bars * beatsPerBar; // 16 beats
-const beatDuration = 60.0 / bpm; // 0.600 sec per beat
-const totalDuration = totalBeats * beatDuration; // 9.600 sec
+const beatDuration = 60.0 / bpm; // 0.46875 sec per beat
+const totalDuration = totalBeats * beatDuration; // 7.500 sec
 const totalSamples = Math.floor(totalDuration * sampleRate);
 
 const left = new Float32Array(totalSamples);
 const right = new Float32Array(totalSamples);
 
-// Pseudo-random helper for white noise
+// Pseudo-random helper for noise
 let seed = 42;
 function random() {
   seed = (seed * 9301 + 49297) % 233280;
   return seed / 233280;
 }
 
-// 1. KICK & 808 SUB-BASS (Syncopated Afro-Dembow pattern: 0, 1.75, 2.5, 3.25 per bar)
+// 1. KICK & 808 SUB-BASS (Solid 4-on-the-floor punches + syncopated sub accents)
 for (let bar = 0; bar < bars; bar++) {
-  const kickBeats = [0, 1.75, 2.5, 3.25];
-  for (const kb of kickBeats) {
+  // Solid kicks on every quarter beat (0, 1, 2, 3) to lock with any song tempo
+  const mainKicks = [0, 1.0, 2.0, 3.0];
+  for (const kb of mainKicks) {
     const startSec = (bar * beatsPerBar + kb) * beatDuration;
     const startSample = Math.floor(startSec * sampleRate);
-    const kickSamples = Math.floor(0.35 * sampleRate);
+    const kickSamples = Math.floor(0.24 * sampleRate);
 
     for (let i = 0; i < kickSamples && startSample + i < totalSamples; i++) {
       const t = i / sampleRate;
-      // Pitch drop: starts high (160 Hz) and dives to 46 Hz (F# sub)
-      const freq = 160 * Math.exp(-t * 30) + 46;
+      // High-impact punch: 165 Hz diving rapidly to 48 Hz
+      const freq = 165 * Math.exp(-t * 42) + 48;
       const phase = 2 * Math.PI * freq * t;
-      // Amplitude envelope: punchy initial hit + smooth sub tail
-      const env = Math.exp(-t * 9);
-      // Soft saturation
-      const raw = Math.sin(phase) * env * 0.9;
-      const val = Math.tanh(raw * 1.2) * 0.85;
+      const env = Math.exp(-t * 14);
+      const raw = Math.sin(phase) * env * 0.85;
+      const val = Math.tanh(raw * 1.3) * 0.8;
+
+      left[startSample + i] += val;
+      right[startSample + i] += val;
+    }
+  }
+
+  // Syncopated 808 sub slides on 1.75 and 2.5
+  const subHits = [1.75, 2.5];
+  for (const sb of subHits) {
+    const startSec = (bar * beatsPerBar + sb) * beatDuration;
+    const startSample = Math.floor(startSec * sampleRate);
+    const subSamples = Math.floor(0.20 * sampleRate);
+
+    for (let i = 0; i < subSamples && startSample + i < totalSamples; i++) {
+      const t = i / sampleRate;
+      const freq = 120 * Math.exp(-t * 25) + 42;
+      const env = Math.exp(-t * 10);
+      const val = Math.tanh(Math.sin(2 * Math.PI * freq * t) * env * 0.7) * 0.65;
 
       left[startSample + i] += val;
       right[startSample + i] += val;
@@ -46,25 +63,41 @@ for (let bar = 0; bar < bars; bar++) {
   }
 }
 
-// 2. SYNCOPATED RIMSHOT & CLAP (Crisp, snappy Afro-Dembow accents at 0.75, 1.75, 2.75, 3.5)
+// 2. SYNCOPATED RIMSHOT & CLAP (Crisp backbeat on 1 & 3 + syncopated accents on 0.75, 1.75, 2.75)
 for (let bar = 0; bar < bars; bar++) {
-  const rimBeats = [0.75, 1.75, 2.5, 3.5];
-  for (let rIdx = 0; rIdx < rimBeats.length; rIdx++) {
-    const rb = rimBeats[rIdx];
+  // Backbeat claps on beats 2 & 4 (indexed as 1.0 and 3.0)
+  const backbeats = [1.0, 3.0];
+  for (const bb of backbeats) {
+    const startSec = (bar * beatsPerBar + bb) * beatDuration;
+    const startSample = Math.floor(startSec * sampleRate);
+    const clapSamples = Math.floor(0.12 * sampleRate);
+
+    for (let i = 0; i < clapSamples && startSample + i < totalSamples; i++) {
+      const t = i / sampleRate;
+      const noise = (random() * 2 - 1) * Math.exp(-t * 32);
+      const tone = Math.sin(2 * Math.PI * 1200 * t) * Math.exp(-t * 50) * 0.4;
+      const val = (noise * 0.7 + tone) * 0.7;
+
+      left[startSample + i] += val;
+      right[startSample + i] += val;
+    }
+  }
+
+  // Wooden syncopated rimshots
+  const rimHits = [0.75, 1.75, 2.5, 3.5];
+  for (const rb of rimHits) {
     const startSec = (bar * beatsPerBar + rb) * beatDuration;
     const startSample = Math.floor(startSec * sampleRate);
-    const rimSamples = Math.floor(0.12 * sampleRate);
+    const rimSamples = Math.floor(0.08 * sampleRate);
 
     for (let i = 0; i < rimSamples && startSample + i < totalSamples; i++) {
       const t = i / sampleRate;
-      // Wooden rim tonal body (880 Hz + 1760 Hz harmonic)
-      const tonal = (Math.sin(2 * Math.PI * 880 * t) * 0.6 + Math.sin(2 * Math.PI * 1760 * t) * 0.4) * Math.exp(-t * 70);
-      // Crisp noise burst
-      const noise = (random() * 2 - 1) * Math.exp(-t * 45);
-      const val = (tonal * 0.7 + noise * 0.5) * 0.75;
+      const tonal = (Math.sin(2 * Math.PI * 960 * t) * 0.6 + Math.sin(2 * Math.PI * 1920 * t) * 0.4) * Math.exp(-t * 80);
+      const noise = (random() * 2 - 1) * Math.exp(-t * 60);
+      const val = (tonal * 0.75 + noise * 0.45) * 0.65;
 
-      left[startSample + i] += val * 0.95;
-      right[startSample + i] += val * 1.05; // Subtle stereo spread
+      left[startSample + i] += val * 0.9;
+      right[startSample + i] += val * 1.1; // stereo spice
     }
   }
 }
@@ -74,23 +107,20 @@ const sixteenths = totalBeats * 4; // 64 16th notes
 for (let s = 0; s < sixteenths; s++) {
   const isDownbeat = s % 4 === 0;
   const isOffbeat = s % 4 === 2;
-  const swingOffset = (s % 2 === 1) ? 0.015 : 0; // Swing feel
-  const startSec = (s * (beatDuration / 4)) + swingOffset;
+  const startSec = s * (beatDuration / 4);
   const startSample = Math.floor(startSec * sampleRate);
-  const shakerLen = Math.floor(0.06 * sampleRate);
+  const shakerLen = Math.floor(0.05 * sampleRate);
 
-  const amp = isDownbeat ? 0.4 : isOffbeat ? 0.32 : 0.22;
+  const amp = isDownbeat ? 0.35 : isOffbeat ? 0.28 : 0.18;
 
   for (let i = 0; i < shakerLen && startSample + i < totalSamples; i++) {
     const t = i / sampleRate;
-    // High-pass filtered noise
     const noise = (random() * 2 - 1);
-    const env = Math.exp(-t * 80);
-    const tone = Math.sin(2 * Math.PI * 5200 * t) * 0.3;
-    const val = (noise * 0.7 + tone) * env * amp;
+    const env = Math.exp(-t * 90);
+    const tone = Math.sin(2 * Math.PI * 5800 * t) * 0.25;
+    const val = (noise * 0.75 + tone) * env * amp;
 
-    // Stereo panning movement
-    const pan = 0.4 + 0.2 * Math.sin(s * 0.5);
+    const pan = 0.4 + 0.2 * Math.sin(s * 0.6);
     left[startSample + i] += val * (1 - pan);
     right[startSample + i] += val * pan;
   }
@@ -126,8 +156,8 @@ buffer.write('WAVE', 8);
 
 // fmt chunk
 buffer.write('fmt ', 12);
-buffer.writeUInt32LE(16, 16); // subchunk1size (16 for PCM)
-buffer.writeUInt16LE(1, 20); // audio format (1 = PCM)
+buffer.writeUInt32LE(16, 16);
+buffer.writeUInt16LE(1, 20);
 buffer.writeUInt16LE(numChannels, 22);
 buffer.writeUInt32LE(sampleRate, 24);
 buffer.writeUInt32LE(byteRate, 28);

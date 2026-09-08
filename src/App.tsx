@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { BUWAGA_SYNC_ENGINE } from './engine/syncEngine';
 import { audioSynth } from './engine/audioSynth';
 import { decodeAudioFile, extractWaveformPeaks, detectBpm, generateDemoTrack } from './engine/audioAnalysis';
-import { initializeDefaultLooperTracks } from './engine/looperAudio';
+import { initializeDefaultLooperTracks, loadSuperbBeatAudio } from './engine/looperAudio';
 import { saveAudioFile, loadAudioFile } from './engine/audioStorage';
 import { DjHeader } from './components/DjHeader';
 import { PhaseWaveDisplay } from './components/PhaseWaveDisplay';
@@ -190,6 +190,11 @@ export default function App() {
     bassCut: false,
   });
 
+  const looperMultiplierRef = useRef<number>(1.0);
+  useEffect(() => {
+    looperMultiplierRef.current = looperParams.tempoMultiplier || 1.0;
+  }, [looperParams.tempoMultiplier]);
+
   // Track loader modal state
   const [trackPickerDeck, setTrackPickerDeck] = useState<1 | 2 | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -201,10 +206,12 @@ export default function App() {
 
   const lastTimeRef = useRef<number>(performance.now());
 
-  // Master BPM calculation helper
+  // Master BPM calculation helper - intelligently tracks whichever deck is currently playing
   const getMasterEffectiveBpm = useCallback(() => {
+    if (playing1 && !playing2) return bpm1 * rate1;
+    if (playing2 && !playing1) return bpm2 * rate2;
     return masterClockDeck === 'master' ? bpm1 * rate1 : bpm2 * rate2;
-  }, [masterClockDeck, bpm1, rate1, bpm2, rate2]);
+  }, [masterClockDeck, bpm1, rate1, bpm2, rate2, playing1, playing2]);
 
   // 9. Main High-Precision Simulation & Audio Loop
   useEffect(() => {
@@ -231,6 +238,16 @@ export default function App() {
       audioSynth.updatePlaybackRate('master', engine.master.playbackRate);
       audioSynth.updatePlaybackRate('slave', engine.slave.playbackRate);
 
+      // Continuously keep Superb Beat looper matched to playing deck tempo
+      const activeDeckEngine = (engine.slave.playing && !engine.master.playing)
+        ? engine.slave
+        : (engine.master.playing && !engine.slave.playing)
+        ? engine.master
+        : (masterClockDeck === 'slave' ? engine.slave : engine.master);
+      const currentSongBpm = activeDeckEngine.bpm * activeDeckEngine.playbackRate;
+      const currentEffectiveLooperBpm = currentSongBpm * (looperMultiplierRef.current || 1.0);
+      audioSynth.updateAllLooperPlaybackRates(currentEffectiveLooperBpm);
+
       // Update local state
       setPos1(engine.master.position);
       setPos2(engine.slave.position);
@@ -252,7 +269,7 @@ export default function App() {
     animId = requestAnimationFrame(loop);
 
     return () => cancelAnimationFrame(animId);
-  }, [engine]);
+  }, [engine, masterClockDeck]);
 
   // Initial demo tracks & procedural Looper loops loading
   useEffect(() => {
@@ -291,8 +308,20 @@ export default function App() {
         setTrack2(t2);
         setBpm2(126.0);
 
-        // 2. Initialize Looper Room with uploaded Afrobeat loop + beat-matched grooves
+        // 2. Initialize Looper Room with Superb Beat (128.0 BPM universal sync)
         const loops = initializeDefaultLooperTracks(ctx);
+
+        // Load superb_beat.wav into Track 1 if available
+        try {
+          const superbWav = await loadSuperbBeatAudio(ctx);
+          if (superbWav) {
+            loops[0].audioBuffer = superbWav;
+            loops[0].peaks = extractWaveformPeaks(superbWav, 800);
+            loops[0].originalBpm = 128.0;
+          }
+        } catch (e) {
+          console.warn('Superb Beat audio loaded procedurally:', e);
+        }
 
         // Check if user previously saved a custom WAV file in IndexedDB
         try {
@@ -368,9 +397,10 @@ export default function App() {
     audioSynth.updatePlaybackRate('master', newRate);
     setRate1(newRate);
 
-    // If Deck 1 is master, update Looper tracks tempo
-    if (masterClockDeck === 'master') {
-      audioSynth.updateAllLooperPlaybackRates(bpm1 * newRate);
+    // If Deck 1 is active/master, update Looper tracks tempo
+    if (masterClockDeck === 'master' || (playing1 && !playing2)) {
+      const effectiveBpm = bpm1 * newRate * (looperParams.tempoMultiplier || 1.0);
+      audioSynth.updateAllLooperPlaybackRates(effectiveBpm);
     }
   };
 
@@ -432,9 +462,10 @@ export default function App() {
     audioSynth.updatePlaybackRate('slave', newRate);
     setRate2(newRate);
 
-    // If Deck 2 is master, update Looper tracks tempo
-    if (masterClockDeck === 'slave') {
-      audioSynth.updateAllLooperPlaybackRates(bpm2 * newRate);
+    // If Deck 2 is active/master, update Looper tracks tempo
+    if (masterClockDeck === 'slave' || (playing2 && !playing1)) {
+      const effectiveBpm = bpm2 * newRate * (looperParams.tempoMultiplier || 1.0);
+      audioSynth.updateAllLooperPlaybackRates(effectiveBpm);
     }
   };
 
@@ -670,11 +701,22 @@ export default function App() {
 
       if (buffer) {
         // Calculate tempo and beat-matched offset so loop locks seamlessly to the playing song
-        const effectiveBpm = masterBpm * (looperParams.tempoMultiplier || 1.0);
-        const currentPos = masterClockDeck === 'master' ? engine.master.position : engine.slave.position;
-        const beatInterval = 60.0 / effectiveBpm;
-        const barInterval = beatInterval * 4;
-        const offset = currentPos % (buffer.duration || barInterval);
+        const activeEngine = (playing2 && !playing1)
+          ? engine.slave
+          : (playing1 && !playing2)
+          ? engine.master
+          : (masterClockDeck === 'slave' ? engine.slave : engine.master);
+        const songBpm = (activeEngine.bpm * activeEngine.playbackRate) || 128.0;
+        const effectiveBpm = songBpm * (looperParams.tempoMultiplier || 1.0);
+
+        // Phase align: calculate how many beats the song has elapsed from downbeat
+        const gridOffset = activeEngine.grid.offset || 0;
+        const songTimeFromDownbeat = Math.max(0, activeEngine.position - gridOffset);
+        const songBeat = songTimeFromDownbeat / (60.0 / songBpm);
+        // Loop is 4 bars = 16 beats
+        const loopBeatPhase = ((songBeat % 16) + 16) % 16;
+        // Exact unpitched buffer offset in seconds
+        const offset = (loopBeatPhase * (60.0 / track.originalBpm)) % buffer.duration;
 
         audioSynth.playLooperTrack(
           trackId,
@@ -689,7 +731,8 @@ export default function App() {
         setLooperTracks((prev) =>
           prev.map((t) => (t.id === trackId ? { ...t, isPlaying: true, isMuted: false } : t))
         );
-        setStatusText(`Superb Beat: playing [${track.name}] synchronized to ${effectiveBpm.toFixed(1)} BPM`);
+        const activeDeckName = activeEngine === engine.master ? 'Deck 1' : 'Deck 2';
+        setStatusText(`Superb Beat: playing [${track.name}] synchronized to ${activeDeckName} (${effectiveBpm.toFixed(1)} BPM)`);
       }
     }
   };
@@ -814,16 +857,24 @@ export default function App() {
 
   const handleResyncLooper = async () => {
     await ensureAudio();
-    const effectiveBpm = getMasterEffectiveBpm() * (looperParams.tempoMultiplier || 1.0);
+    const activeEngine = (playing2 && !playing1)
+      ? engine.slave
+      : (playing1 && !playing2)
+      ? engine.master
+      : (masterClockDeck === 'slave' ? engine.slave : engine.master);
+    const songBpm = (activeEngine.bpm * activeEngine.playbackRate) || 128.0;
+    const effectiveBpm = songBpm * (looperParams.tempoMultiplier || 1.0);
+    const gridOffset = activeEngine.grid.offset || 0;
+    const songTimeFromDownbeat = Math.max(0, activeEngine.position - gridOffset);
+    const songBeat = songTimeFromDownbeat / (60.0 / songBpm);
+    const loopBeatPhase = ((songBeat % 16) + 16) % 16;
+
     audioSynth.updateAllLooperPlaybackRates(effectiveBpm);
 
-    // Realign all active playing loops to the nearest downbeat
-    const currentPos = masterClockDeck === 'master' ? engine.master.position : engine.slave.position;
+    // Realign all active playing loops to the exact beat phase of the playing song
     looperTracks.forEach((t) => {
       if (t.isPlaying && t.audioBuffer) {
-        const beatInterval = 60.0 / effectiveBpm;
-        const barInterval = beatInterval * 4;
-        const offset = currentPos % (t.audioBuffer.duration || barInterval);
+        const offset = (loopBeatPhase * (60.0 / t.originalBpm)) % t.audioBuffer.duration;
         audioSynth.playLooperTrack(
           t.id,
           t.audioBuffer,
@@ -835,7 +886,8 @@ export default function App() {
         );
       }
     });
-    setStatusText('Superb Beat: locked and re-synchronized to Master Downbeat (0ms offset)');
+    const activeDeckName = activeEngine === engine.master ? 'Deck 1' : 'Deck 2';
+    setStatusText(`Superb Beat: locked and re-synchronized to ${activeDeckName} Downbeat (${effectiveBpm.toFixed(1)} BPM, Beat ${Math.floor(songBeat % 4) + 1})`);
   };
 
   // Sampler Handlers
@@ -1156,6 +1208,7 @@ export default function App() {
             onResyncLooper={handleResyncLooper}
             onChangeLooperMultiplier={handleChangeLooperMultiplier}
             onToggleLooperBassCut={handleToggleLooperBassCut}
+            onSelectMasterDeck={setMasterClockDeck}
           />
         )}
 

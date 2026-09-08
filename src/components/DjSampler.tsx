@@ -42,6 +42,7 @@ interface DjSamplerProps {
   onResyncLooper: () => void;
   onChangeLooperMultiplier?: (multiplier: number) => void;
   onToggleLooperBassCut?: () => void;
+  onSelectMasterDeck?: (deck: 'master' | 'slave') => void;
 }
 
 export const DjSampler: React.FC<DjSamplerProps> = ({
@@ -66,6 +67,7 @@ export const DjSampler: React.FC<DjSamplerProps> = ({
   onResyncLooper,
   onChangeLooperMultiplier,
   onToggleLooperBassCut,
+  onSelectMasterDeck,
 }) => {
   const [activeTab, setActiveTab] = useState<'looper' | 'pads'>('looper'); // Default to Looper Room as requested!
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -307,16 +309,47 @@ export const DjSampler: React.FC<DjSamplerProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-300 mt-0.5">
-                  Synchronized to <strong className="text-amber-400 font-mono">{masterBpm.toFixed(2)} BPM</strong> ({masterDeck === 'master' ? 'Deck 1' : 'Deck 2'}). Microsecond downbeat alignment for all songs and genres.
+                  Synchronized to <strong className="text-amber-400 font-mono">{(masterBpm * (looperParams.tempoMultiplier || 1.0)).toFixed(1)} BPM</strong> ({masterDeck === 'master' ? 'Deck 1' : 'Deck 2'}). Microsecond downbeat alignment for all songs and genres.
                 </p>
               </div>
             </div>
 
-            {/* Adaptation Tools: Half-Time, 1x Match, Double-Time & Bass Kill */}
+            {/* Adaptation Tools: Deck Target, Half-Time, 1x Match, Double-Time & Bass Kill */}
             <div className="flex flex-wrap items-center gap-2 shrink-0 w-full lg:w-auto justify-end">
+              {/* Target Deck Selector */}
+              {onSelectMasterDeck && (
+                <div className="flex items-center space-x-1 bg-zinc-950 p-1 rounded border border-zinc-800">
+                  <span className="text-[9px] font-mono font-bold text-zinc-500 uppercase px-1">
+                    SYNC TO:
+                  </span>
+                  <button
+                    onClick={() => onSelectMasterDeck('master')}
+                    className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                      masterDeck === 'master'
+                        ? 'bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.6)]'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                    }`}
+                    title="Synchronize Superb Beat to Deck 1"
+                  >
+                    DECK 1
+                  </button>
+                  <button
+                    onClick={() => onSelectMasterDeck('slave')}
+                    className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-all ${
+                      masterDeck === 'slave'
+                        ? 'bg-cyan-600 text-white shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                    }`}
+                    title="Synchronize Superb Beat to Deck 2"
+                  >
+                    DECK 2
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center space-x-1 bg-zinc-950 p-1 rounded border border-zinc-800">
                 <span className="text-[9px] font-mono font-bold text-zinc-500 uppercase px-1.5">
-                  TEMPO MULTIPLIER:
+                  TEMPO:
                 </span>
                 <button
                   onClick={() => onChangeLooperMultiplier && onChangeLooperMultiplier(0.5)}

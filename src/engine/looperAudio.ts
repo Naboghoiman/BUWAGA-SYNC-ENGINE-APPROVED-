@@ -37,12 +37,12 @@ export async function loadSuperbBeatAudio(ctx: AudioContext): Promise<AudioBuffe
 
 /**
  * Procedurally generates the exact 4-bar Superb Beat audio or isolated stems.
- * Native BPM: 100.0 BPM (4 bars = 16 beats = 9.600 seconds).
+ * Native BPM: 128.0 BPM (4 bars = 16 beats = 7.500 seconds).
  */
 export function generateSuperbBeatStem(
   ctx: AudioContext,
   stem: SuperbBeatStem = 'master',
-  bpm = 100.0
+  bpm = 128.0
 ): { buffer: AudioBuffer; peaks: Float32Array; duration: number } {
   const sampleRate = ctx.sampleRate;
   const bars = 4;
@@ -66,22 +66,41 @@ export function generateSuperbBeatStem(
   const includeRim = stem === 'master' || stem === 'rim_clap';
   const includeShaker = stem === 'master' || stem === 'shaker';
 
-  // 1. KICK & 808 SUB-BASS (0, 1.75, 2.5, 3.25)
+  // 1. KICK & 808 SUB-BASS (Solid 4-on-the-floor punches + syncopated sub accents)
   if (includeKick) {
     for (let bar = 0; bar < bars; bar++) {
-      const kickBeats = [0, 1.75, 2.5, 3.25];
-      for (const kb of kickBeats) {
+      // Solid punch on every quarter beat (0, 1, 2, 3) to lock with any song
+      const mainKicks = [0, 1.0, 2.0, 3.0];
+      for (const kb of mainKicks) {
         const startSec = (bar * beatsPerBar + kb) * beatInterval;
         const startSample = Math.floor(startSec * sampleRate);
-        const kickSamples = Math.floor(0.35 * sampleRate);
+        const kickSamples = Math.floor(0.24 * sampleRate);
 
         for (let i = 0; i < kickSamples && startSample + i < totalSamples; i++) {
           const t = i / sampleRate;
-          const freq = 160 * Math.exp(-t * 30) + 46;
+          const freq = 165 * Math.exp(-t * 42) + 48;
           const phase = 2 * Math.PI * freq * t;
-          const env = Math.exp(-t * 9);
-          const raw = Math.sin(phase) * env * 0.9;
-          const val = Math.tanh(raw * 1.2) * (stem === 'kick_sub' ? 0.95 : 0.85);
+          const env = Math.exp(-t * 14);
+          const raw = Math.sin(phase) * env * 0.85;
+          const val = Math.tanh(raw * 1.3) * (stem === 'kick_sub' ? 0.95 : 0.82);
+
+          left[startSample + i] += val;
+          right[startSample + i] += val;
+        }
+      }
+
+      // Syncopated 808 sub slides on 1.75 and 2.5
+      const subHits = [1.75, 2.5];
+      for (const sb of subHits) {
+        const startSec = (bar * beatsPerBar + sb) * beatInterval;
+        const startSample = Math.floor(startSec * sampleRate);
+        const subSamples = Math.floor(0.20 * sampleRate);
+
+        for (let i = 0; i < subSamples && startSample + i < totalSamples; i++) {
+          const t = i / sampleRate;
+          const freq = 120 * Math.exp(-t * 25) + 42;
+          const env = Math.exp(-t * 10);
+          const val = Math.tanh(Math.sin(2 * Math.PI * freq * t) * env * 0.7) * (stem === 'kick_sub' ? 0.75 : 0.65);
 
           left[startSample + i] += val;
           right[startSample + i] += val;
@@ -90,50 +109,68 @@ export function generateSuperbBeatStem(
     }
   }
 
-  // 2. SYNCOPATED RIMSHOT & CLAP (0.75, 1.75, 2.5, 3.5)
+  // 2. SYNCOPATED RIMSHOT & CLAP (Backbeats on 1 & 3 + syncopated accents on 0.75, 1.75, 2.5, 3.5)
   if (includeRim) {
     for (let bar = 0; bar < bars; bar++) {
-      const rimBeats = [0.75, 1.75, 2.5, 3.5];
-      for (const rb of rimBeats) {
+      // Claps on beats 2 & 4
+      const backbeats = [1.0, 3.0];
+      for (const bb of backbeats) {
+        const startSec = (bar * beatsPerBar + bb) * beatInterval;
+        const startSample = Math.floor(startSec * sampleRate);
+        const clapSamples = Math.floor(0.12 * sampleRate);
+
+        for (let i = 0; i < clapSamples && startSample + i < totalSamples; i++) {
+          const t = i / sampleRate;
+          const noise = (random() * 2 - 1) * Math.exp(-t * 32);
+          const tone = Math.sin(2 * Math.PI * 1200 * t) * Math.exp(-t * 50) * 0.4;
+          const val = (noise * 0.7 + tone) * (stem === 'rim_clap' ? 0.85 : 0.72);
+
+          left[startSample + i] += val;
+          right[startSample + i] += val;
+        }
+      }
+
+      // Wooden syncopated rimshots
+      const rimHits = [0.75, 1.75, 2.5, 3.5];
+      for (const rb of rimHits) {
         const startSec = (bar * beatsPerBar + rb) * beatInterval;
         const startSample = Math.floor(startSec * sampleRate);
-        const rimSamples = Math.floor(0.12 * sampleRate);
+        const rimSamples = Math.floor(0.08 * sampleRate);
 
         for (let i = 0; i < rimSamples && startSample + i < totalSamples; i++) {
           const t = i / sampleRate;
-          const tonal = (Math.sin(2 * Math.PI * 880 * t) * 0.6 + Math.sin(2 * Math.PI * 1760 * t) * 0.4) * Math.exp(-t * 70);
-          const noise = (random() * 2 - 1) * Math.exp(-t * 45);
-          const val = (tonal * 0.7 + noise * 0.5) * (stem === 'rim_clap' ? 0.85 : 0.75);
+          const tonal = (Math.sin(2 * Math.PI * 960 * t) * 0.6 + Math.sin(2 * Math.PI * 1920 * t) * 0.4) * Math.exp(-t * 80);
+          const noise = (random() * 2 - 1) * Math.exp(-t * 60);
+          const val = (tonal * 0.75 + noise * 0.45) * (stem === 'rim_clap' ? 0.8 : 0.68);
 
-          left[startSample + i] += val * 0.95;
-          right[startSample + i] += val * 1.05;
+          left[startSample + i] += val * 0.9;
+          right[startSample + i] += val * 1.1;
         }
       }
     }
   }
 
-  // 3. 16TH ORGANIC SHAKER (Swung continuous groove)
+  // 3. 16TH ORGANIC SHAKER (Continuous groove)
   if (includeShaker) {
     const sixteenths = totalBeats * 4;
     for (let s = 0; s < sixteenths; s++) {
       const isDownbeat = s % 4 === 0;
       const isOffbeat = s % 4 === 2;
-      const swingOffset = (s % 2 === 1) ? 0.015 : 0;
-      const startSec = (s * (beatInterval / 4)) + swingOffset;
+      const startSec = s * (beatInterval / 4);
       const startSample = Math.floor(startSec * sampleRate);
-      const shakerLen = Math.floor(0.06 * sampleRate);
+      const shakerLen = Math.floor(0.05 * sampleRate);
 
-      const baseAmp = isDownbeat ? 0.4 : isOffbeat ? 0.32 : 0.22;
-      const amp = stem === 'shaker' ? baseAmp * 1.2 : baseAmp;
+      const baseAmp = isDownbeat ? 0.35 : isOffbeat ? 0.28 : 0.18;
+      const amp = stem === 'shaker' ? baseAmp * 1.25 : baseAmp;
 
       for (let i = 0; i < shakerLen && startSample + i < totalSamples; i++) {
         const t = i / sampleRate;
         const noise = (random() * 2 - 1);
-        const env = Math.exp(-t * 80);
-        const tone = Math.sin(2 * Math.PI * 5200 * t) * 0.3;
-        const val = (noise * 0.7 + tone) * env * amp;
+        const env = Math.exp(-t * 90);
+        const tone = Math.sin(2 * Math.PI * 5800 * t) * 0.25;
+        const val = (noise * 0.75 + tone) * env * amp;
 
-        const pan = 0.4 + 0.2 * Math.sin(s * 0.5);
+        const pan = 0.4 + 0.2 * Math.sin(s * 0.6);
         left[startSample + i] += val * (1 - pan);
         right[startSample + i] += val * pan;
       }
@@ -145,7 +182,7 @@ export function generateSuperbBeatStem(
   for (let i = 0; i < totalSamples; i++) {
     maxPeak = Math.max(maxPeak, Math.abs(left[i]), Math.abs(right[i]));
   }
-  const normFactor = maxPeak > 0 ? 0.92 / maxPeak : 1;
+  const normFactor = maxPeak > 0 ? 0.94 / maxPeak : 1;
   for (let i = 0; i < totalSamples; i++) {
     left[i] = Math.tanh(left[i] * normFactor);
     right[i] = Math.tanh(right[i] * normFactor);
@@ -160,16 +197,16 @@ export function generateSuperbBeatStem(
  * All previous unrelated loops have been completely removed.
  */
 export function buildInitialLooperTracks(ctx: AudioContext): LooperTrack[] {
-  const master = generateSuperbBeatStem(ctx, 'master', 100.0);
-  const kickStem = generateSuperbBeatStem(ctx, 'kick_sub', 100.0);
-  const rimStem = generateSuperbBeatStem(ctx, 'rim_clap', 100.0);
-  const shakerStem = generateSuperbBeatStem(ctx, 'shaker', 100.0);
+  const master = generateSuperbBeatStem(ctx, 'master', 128.0);
+  const kickStem = generateSuperbBeatStem(ctx, 'kick_sub', 128.0);
+  const rimStem = generateSuperbBeatStem(ctx, 'rim_clap', 128.0);
+  const shakerStem = generateSuperbBeatStem(ctx, 'shaker', 128.0);
 
   return [
     {
       id: 1,
       name: 'SUPERB BEAT (FULL MASTER)',
-      originalBpm: 100.0,
+      originalBpm: 128.0,
       bars: 4,
       audioBuffer: master.buffer,
       peaks: master.peaks,
@@ -182,7 +219,7 @@ export function buildInitialLooperTracks(ctx: AudioContext): LooperTrack[] {
     {
       id: 2,
       name: 'KICK & 808 SUB-BASS',
-      originalBpm: 100.0,
+      originalBpm: 128.0,
       bars: 4,
       audioBuffer: kickStem.buffer,
       peaks: kickStem.peaks,
@@ -195,7 +232,7 @@ export function buildInitialLooperTracks(ctx: AudioContext): LooperTrack[] {
     {
       id: 3,
       name: 'SYNCOPATED RIM & CLAP',
-      originalBpm: 100.0,
+      originalBpm: 128.0,
       bars: 4,
       audioBuffer: rimStem.buffer,
       peaks: rimStem.peaks,
@@ -208,7 +245,7 @@ export function buildInitialLooperTracks(ctx: AudioContext): LooperTrack[] {
     {
       id: 4,
       name: '16TH ORGANIC SHAKER',
-      originalBpm: 100.0,
+      originalBpm: 128.0,
       bars: 4,
       audioBuffer: shakerStem.buffer,
       peaks: shakerStem.peaks,
